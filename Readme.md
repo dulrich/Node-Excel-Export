@@ -2,16 +2,19 @@
 
 A simple and fast node.js module for exporting data set to Excel xlsx file. Now completely asynchronous!
 
+## Installation
+This module depends on zipper, and you must install `libzip-dev (ubuntu)` or equivalent package, as per https://github.com/rubenv/zipper
+
 ## Using excel-export ##
 Setup configuration object before passing it into the execute method.
 **cols** is an array for column definition.  Column definition should have caption and type properties while width property is not required.  The unit for width property is character.
 **beforeCellWrite** callback is optional.  beforeCellWrite is invoked with row, cell data and option object (eOpt detail later) parameters.  The return value from beforeCellWrite is what get written into the cell.  Supported valid types are string, date, bool and number.
-* eOpt in beforeCellWrite callback contains rowNum for current row number.
-* eOpt.styleIndex should be a valid zero based index from cellXfs tag of the selected styles xml file.
-* eOpt.cellType is default to the type value specified in column definition.  However, in some scenario you might want to change it for different format. 
+* `eOpt` in beforeCellWrite callback contains rowNum for current row number.
+* `eOpt.styleIndex` should be a valid zero based index from cellXfs tag of the selected styles xml file.
+* `eOpt.cellType` is default to the type value specified in column definition.  However, in some scenario you might want to change it for different format. 
 
 **rows** is the data to be exported. It is an Array of Array (row). Each row should be the same length as cols.  Styling is optional.  However, if you want to style your spreadsheet, a valid excel styles xml file is needed.  An easy way to get a styles xml file is to unzip an existing xlsx file which has the desired styles and copy out the styles.xml file.
-**stylesXmlFile** specifies the relative path and file name of the xml style file.  Google for "spreadsheetml style" to learn more detail on styling spreadsheet.  If your spreadsheet contains dates you must hace a styles.xml file. Look at `example/minimal.styles.xml` for a stripped down example using one date format.
+**stylesXmlFile** specifies the relative path and file name of the xml style file.  Google for "spreadsheetml style" to learn more detail on styling spreadsheet.  If your spreadsheet contains dates you must have a styles.xml file. Look at `example/minimal.styles.xml` for a stripped down example using one date format.
 
 
 Example with express:
