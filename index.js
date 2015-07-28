@@ -241,21 +241,33 @@ exports.execute = function(config, callback) {
             return fs.writeFile(p, sharedStringsFront + sharedString.converted.join("") + sharedStringsBack, callback);
         }
     ], function (err) {
+        var waterfall = [];
         if (err) {
             return callback(err);
         }
-        var prev = fs.readFileSync(path.join(dirPath, 'data.zip'));
-        var zip = new JSZip(prev);
+        waterfall.push(function(acb) {
+            fs.readFile(path.join(dirPath, 'data.zip'),function(err, file) {
+                if (err) return acb(err);
+                acb(null, new JSZip(file));
+            });
+        });
         files.forEach(function (file) {
-            var relative = path.relative(dirPath, file);
-            zip.file(relative, fs.readFileSync(file));
+            waterfall.push(function(prev,zip) {
+                var relative = path.relative(dirPath, file);
+                fs.readFile(file,function(err, contents) {
+                    if (err) return acb(err);
+                    zip.file(relative, contents);
+                    acb(null,zip);
         });
-        var data = zip.generate({
-            mimeType: 'application/zip',
-            type: 'nodebuffer'
+        async.waterfall(waterfall, function(err,res) {
+            if (err) return callback(err);
+            var data = zip.generate({
+                mimeType: 'application/zip',
+                type: 'nodebuffer'
+            });
+            temp.cleanup();
+            return callback(null, data);
         });
-        temp.cleanup();
-        return callback(null, data);
     });
 };
 var startTag = function (obj, tagName, closed) {
