@@ -1,16 +1,13 @@
 var fs = require('fs');
 var temp = require('temp').track();
 var path = require('path');
-var zipper = require('zipper').Zipper;
+var JSZip = require('jszip');
 var async = require('async');
-
-Date.prototype.getJulian = function() {
-    return Math.floor((this / 86400000) -
-    (this.getTimezoneOffset()/1440) + 2440587.5);
+Date.prototype.getJulian = function () {
+    return Math.floor(this / 86400000 - this.getTimezoneOffset() / 1440 + 2440587.5);
 };
-
-Date.prototype.oaDate = function() {
-    return (this - new Date(Date.UTC(1899,11,30))) / (24 * 60 * 60 * 1000);
+Date.prototype.oaDate = function () {
+    return (this - new Date(Date.UTC(1899, 11, 30))) / (24 * 60 * 60 * 1000);
 };
 
 var fragments = require('./fragments');
@@ -31,7 +28,8 @@ exports.execute = function(config, callback) {
         p,
         files = [],
         styleIndex,
-        k,
+        k = 0,
+        cn = 1,
         dirPath,
         sharedString = {
             values: [],
@@ -45,101 +43,99 @@ exports.execute = function(config, callback) {
         var buf = new Buffer(str)
         var off = 0;
         var written = 0;
-
-        return async.whilst(
-            function() {
-                return written < buf.length;
-            },
-            function(callback) {
-                fs.write(sheet, buf, off, buf.length - off, sheetPos, function(err, w) {
-                    if (err) {
-                        return callback(err);
-                    }
-
-                    written += w;
-                    off += w;
-                    sheetPos += w;
-
-                    return callback();
-                });
-            },
-            callback
-        );
-    }
-
-    return async.waterfall([
-        function(callback) {
-            return temp.mkdir('xlsx', function(err, dir) {
+        return async.whilst(function () {
+            return written < buf.length;
+        }, function (callback) {
+            fs.write(sheet, buf, off, buf.length - off, sheetPos, function (err, w) {
                 if (err) {
                     return callback(err);
                 }
-
+                written += w;
+                off += w;
+                sheetPos += w;
+                return callback();
+            });
+        }, callback);
+    };
+    return async.waterfall([
+        function (callback) {
+            return temp.mkdir('xlsx', function (err, dir) {
+                if (err) {
+                    return callback(err);
+                }
                 dirPath = dir;
                 return callback();
             });
         },
-        function(callback) {
+        function (callback) {
             return fs.mkdir(path.join(dirPath, 'xl'), callback);
         },
-        function(callback) {
+        function (callback) {
             return fs.mkdir(path.join(dirPath, 'xl', 'worksheets'), callback);
         },
-        function(callback) {
+        function (callback) {
             return async.parallel([
-                function(callback) {
+                function (callback) {
                     return fs.writeFile(path.join(dirPath, 'data.zip'), templateXLSX, callback);
                 },
-                function(callback) {
+                function (callback) {
                     if (!config.stylesXmlFile) {
                         return callback();
                     }
-
-                    p = config.stylesXmlFile;
-                    return fs.readFile(p, 'utf8', function(err, styles) {
+                    p = config.stylesXmlFile || __dirname + '/styles.xml';
+                    return fs.readFile(p, 'utf8', function (err, styles) {
                         if (err) {
                             return callback(err);
                         }
-
                         p = path.join(dirPath, 'xl', 'styles.xml');
                         files.push(p);
                         return fs.writeFile(p, styles, callback);
                     });
                 }
-            ], function(err) {
+            ], function (err) {
                 return callback(err);
-            })
+            });
         },
-        function(callback) {
+        function (callback) {
             p = path.join(dirPath, 'xl', 'worksheets', 'sheet.xml');
             files.push(p);
-            return fs.open(p, 'a+', function(err, fd) {
+            return fs.open(p, 'a+', function (err, fd) {
                 if (err) {
                     return callback(err);
                 }
-
                 sheet = fd;
-
                 return callback();
             });
         },
-        function(callback) {
+        function (callback) {
             return write(sheetFront, callback);
         },
-        function(callback) {
-            return write('<x:row r="1" spans="1:'+ colsLength + '">', callback);
+        function (callback) {
+            return async.eachSeries(cols, function (col, callback) {
+                var colStyleIndex = col.styleIndex || 0;
+                var res = '<x:col min="' + cn + '" max="' + cn + '" width="' + (col.width ? col.width : 10) + '" customWidth="1" style="' + colStyleIndex + '"/>';
+                cn++;
+                return write(res, callback);
+            }, callback);
         },
-        function(callback) {
-            return async.eachSeries(cols, function(col, callback) {
+        function (callback) {
+            return write('</cols><x:sheetData>', callback);
+        },
+        function (callback) {
+            return write('<x:row r="1" spans="1:' + colsLength + '">', callback);
+        },
+        function (callback) {
+            return async.eachSeries(cols, function (col, callback) {
                 var colStyleIndex = col.captionStyleIndex || 0;
-                var res = addStringCol(getColumnLetter(k+1)+1, col.caption, colStyleIndex, sharedString);
+                var res = addStringCol(getColumnLetter(k + 1) + 1, col.caption, colStyleIndex, sharedString);
 
                 return write(res, callback);
             }, callback);
         },
-        function(callback) {
+        function (callback) {
             return write('</x:row>', callback);
         },
-        function(callback) {
+        function (callback) {
             var j, r, cellData, currRow, cellType;
 
             function beforeCellWrite(row,cellData,eOpt) {
@@ -229,137 +225,118 @@ exports.execute = function(config, callback) {
                 return write(row,callback);
             },callback);
         },
-        function(callback) {
+        function (callback) {
             return write(sheetBack, callback);
         },
-        function(callback) {
+        function (callback) {
             return fs.close(sheet, callback);
         },
-        function(callback) {
+        function (callback) {
             if (sharedString.values.length === 0) {
                 return callback();
             }
-
             sharedStringsFront = sharedStringsFront.replace(/\$count/g, sharedString.values.length);
             p = path.join(dirPath, 'xl', 'sharedStrings.xml');
-            files.push(p)
+            files.push(p);
             return fs.writeFile(p, sharedStringsFront + sharedString.converted.join("") + sharedStringsBack, callback);
-        },
-        function(callback) {
-            var zipfile = new zipper(path.join(dirPath, 'data.zip'));
-
-            return async.eachSeries(files, function(file, callback) {
-                var relative = path.relative(dirPath, file)
-
-                return zipfile.addFile(file, relative, callback);
-            }, function(err, res) {
-                if (err) {
-                    return callback(err);
-                }
-
-                return fs.readFile(path.join(dirPath, 'data.zip'), callback);
-            })
-        }],
-        function(err, data) {
-            if (err) {
-                return callback(err);
-            }
-
-            temp.cleanup();
-            return callback(null, data);
         }
-    );
-}
-
+    ], function (err) {
+        if (err) {
+            return callback(err);
+        }
+        var prev = fs.readFileSync(path.join(dirPath, 'data.zip'));
+        var zip = new JSZip(prev);
+        files.forEach(function (file) {
+            var relative = path.relative(dirPath, file);
+            zip.file(relative, fs.readFileSync(file));
+        });
+        var data = zip.generate({
+            mimeType: 'application/zip',
+            type: 'nodebuffer'
+        });
+        temp.cleanup();
+        return callback(null, data);
+    });
+};
 var startTag = function (obj, tagName, closed) {
-    var result = "<" + tagName, p;
-    for (p in obj){
-        result += " " + p + "=" + obj[p];
+    var result = '<' + tagName, p;
+    for (p in obj) {
+        result += ' ' + p + '=' + obj[p];
     }
     if (!closed) {
-        result += ">";
+        result += '>';
     } else {
-      result += "/>";
+        result += '/>';
     }
-
     return result;
-}
-
-var endTag = function(tagName){
-    return "</" + tagName + ">";
-}
-
-var addNumberCol = function(cellRef, value, styleIndex){
+};
+var endTag = function (tagName) {
+    return '</' + tagName + '>';
+};
+var addNumberCol = function (cellRef, value, styleIndex) {
     styleIndex = styleIndex || 0;
-    if (value===null) {
-        return "";
+    if (value === null) {
+        return '';
     } else {
-        return '<x:c r="'+cellRef+'" s="'+ styleIndex +'" t="n"><x:v>'+value+'</x:v></x:c>';
+        return '<x:c r="' + cellRef + '" s="' + styleIndex + '" t="n"><x:v>' + value + '</x:v></x:c>';
     }
-}
-
-var addDateCol = function(cellRef, value, styleIndex){
+};
+var addDateCol = function (cellRef, value, styleIndex) {
     styleIndex = styleIndex || 1;
-    if (value===null) {
-        return "";
+    if (value === null) {
+        return '';
     } else {
-        return '<x:c r="'+cellRef+'" s="'+ styleIndex +'" t="n"><x:v>'+value+'</x:v></x:c>';
+        return '<x:c r="' + cellRef + '" s="' + styleIndex + '" t="n"><x:v>' + value + '</x:v></x:c>';
     }
-}
-
-var addBoolCol = function(cellRef, value, styleIndex){
+};
+var addBoolCol = function (cellRef, value, styleIndex) {
     styleIndex = styleIndex || 0;
-    if (value===null) {
-      return "";
+    if (value === null) {
+        return '';
     }
-
     if (value) {
-      value = 1;
+        value = 1;
     } else {
-      value = 0;
+        value = 0;
     }
-
-    return '<x:c r="'+cellRef+'" s="'+ styleIndex + '" t="b"><x:v>'+value+'</x:v></x:c>';
-}
-
-var addStringCol = function(cellRef, value, styleIndex, sharedString){
+    return '<x:c r="' + cellRef + '" s="' + styleIndex + '" t="b"><x:v>' + value + '</x:v></x:c>';
+};
+var addStringCol = function (cellRef, value, styleIndex, sharedString) {
     styleIndex = styleIndex || 0;
-    if (value===null) {
-        return ["", ""];
+    if (value === null) {
+        return [
+            '',
+            ''
+        ];
     }
-
-    if (typeof value ==='string') {
-        value = value.replace(/&/g, "&amp;").replace(/'/g, "&apos;").replace(/>/g, "&gt;").replace(/</g, "&lt;");
+    if (typeof value === 'string') {
+        value = value.replace(/&/g, '&amp;').replace(/'/g, '&apos;').replace(/>/g, '&gt;').replace(/</g, '&lt;');
     }
 
     var i = sharedString.index[value] || -1;
     if ( i < 0) {
         i = sharedString.values.push(value) - 1;
         sharedString.index[value] = i;
-        sharedString.converted.push("<x:si><x:t>"+value+"</x:t></x:si>");
+        sharedString.converted.push("<x:si><x:t>" + value + "</x:t></x:si>");
     }
 
-    return '<x:c r="'+cellRef+'" s="'+ styleIndex + '" t="s"><x:v>'+i+'</x:v></x:c>';
+    return '<x:c r="' + cellRef + '" s="' + styleIndex + '" t="s"><x:v>' + i + '</x:v></x:c>';
 }
 
-var getColumnLetter = function(col){
+var getColumnLetter = function(col) {
     if (col <= 0) {
-      throw "col must be more than 0";
+        throw 'col must be more than 0';
     }
-
     var array = [];
     while (col > 0) {
         var remainder = col % 26;
         col /= 26;
         col = Math.floor(col);
-
-        if(remainder === 0) {
+        if (remainder === 0) {
             remainder = 26;
             col--;
         }
-
         array.push(64 + remainder);
     }
-
     return String.fromCharCode.apply(null, array.reverse());
-}
+};

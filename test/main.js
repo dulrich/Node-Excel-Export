@@ -5,7 +5,7 @@ var nodeExcel = require('../index');
 
 describe('Simple Excel xlsx Export', function() {
     describe('Export', function() {
-        it('returns xlsx', function() {
+        it('returns xlsx', function(done) {
 			var conf ={};
 			conf.cols = [
 				{caption:'string', type:'string'},
@@ -20,9 +20,11 @@ describe('Simple Excel xlsx Export', function() {
         ["null", null, null, null]
 			];
 			
-            nodeExcel.execute(conf, function(err, result) {
-		var fs = require('fs');
-		fs.writeFileSync('d.xlsx', result, 'binary');			
+        nodeExcel.execute(conf, function(err, result) {
+            if (err) throw err;
+            var fs = require('fs');
+            fs.writeFileSync('d.xlsx', result, 'binary');
+            done(err);
 	    });
         });
     });

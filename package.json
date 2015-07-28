@@ -1,6 +1,6 @@
 {
-  "name": "excel-export-ait",
-  "version": "0.4.4",
+  "name": "excel-export-fast",
+  "version": "0.5.1",
   "description": "Simple and fast data set export to Excel xlsx file",
   "main": "index.js",
   "scripts": {
@@ -13,16 +13,18 @@
   ],
   "contributors": [
     "Ber-Lin Lai <berlin.lai@gmail.com>",
-    "René Rössler <rene@freshx.de>"
+    "René Rössler <rene@freshx.de>",
+    "Christoph Tavan <dev@tavan.de>",
+    "Roman Krivtsov <raxpost@gmail.com>"
   ],
   "license": "BSD",
-  "dependencies":{
-    "temp": "~0.7.0",
-    "zipper": "^0.3.0",
-    "async": "^0.2.10"
+  "dependencies": {
+    "async": "^0.2.10",
+    "jszip": "^2.5.0",
+    "temp": "~0.7.0"
   },
   "devDependencies": {
-     "mocha": "",
-     "should": ""
-  }  
+    "mocha": "",
+    "should": ""
+  }
 }
