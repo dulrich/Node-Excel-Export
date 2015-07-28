@@ -26,14 +26,18 @@ var sharedStringsBack  = fragments.sharedBack;
 exports.execute = function(config, callback) {
     var cols = config.cols,
         data = config.rows,
+        dataRows = [],
         colsLength = cols.length,
         p,
         files = [],
         styleIndex,
         k,
         dirPath,
-        shareStrings = [],
-        convertedShareStrings = "",
+        sharedString = {
+            values: [],
+            index: {},
+            converted: []
+        },
         sheet,
         sheetPos = 0;
 
@@ -127,9 +131,9 @@ exports.execute = function(config, callback) {
         function(callback) {
             return async.eachSeries(cols, function(col, callback) {
                 var colStyleIndex = col.captionStyleIndex || 0;
-                var res = addStringCol(getColumnLetter(k+1)+1, col.caption, colStyleIndex, shareStrings);
-                convertedShareStrings += res[1];
-                return write(res[0], callback);
+                var res = addStringCol(getColumnLetter(k+1)+1, col.caption, colStyleIndex, sharedString);
+
+                return write(res, callback);
             }, callback);
         },
         function(callback) {
@@ -137,60 +141,93 @@ exports.execute = function(config, callback) {
         },
         function(callback) {
             var j, r, cellData, currRow, cellType;
-            var i = -1;
 
-            return async.whilst(
-                function() {
-                    return data.length > 0;
-                },
-                function(callback) {
-                    i++
-                    r = data.shift()
-                    currRow = i+2;
+            function beforeCellWrite(row,cellData,eOpt) {
+                var type;
 
-                    var row = '<x:row r="' + currRow +'" spans="1:'+ colsLength + '">';
+                type = typeof cellData;
+                eOpt.cellType = 'string';
 
-                    for (j=0; j < colsLength; j++) {
-                        styleIndex = null;
-                        cellData = r[j];
-                        cellType = cols[j].type;
+                if (type === 'string') {
+                    return cellData;
+                }
+                else if (type === 'number') {
+                    eOpt.cellType = 'number';
+                    return cellData;
+                }
+                else if (type === 'boolean') {
+                    eOpt.cellType = 'bool';
+                    return cellData.toString();
+                }
+                else if (cellData instanceof Date) {
+                    if (!cellData) return '';
 
-                        if (typeof cols[j].beforeCellWrite === 'function') {
-                            var e = {
-                                rowNum: currRow,
-                                styleIndex: null,
-                                cellType: cellType
-                            };
+                    eOpt.cellType = 'date';
+                    return moment(cellData).toDate().oaDate();
+                }
+                else if (cellData instanceof Array) {
+                    return cellData.join(',');
+                }
+                else if (type === 'object') {
+                    return JSON.stringify(cellData);
+                }
+                else {
+                    return '';
+                }
+            }
 
-                            cellData = cols[j].beforeCellWrite(r, cellData, e);
-                            styleIndex = e.styleIndex || styleIndex;
-                            cellType = e.cellType;
-                            e = undefined;
-                        }     
+            dataRows = data.map(function(r,i) {
+                currRow = i+2;
 
-                        switch (cellType) {
-                            case 'number':
-                                row += addNumberCol(getColumnLetter(j+1)+currRow, cellData, styleIndex);
-                                break;
-                            case 'date':
-                                row += addDateCol(getColumnLetter(j+1)+currRow, cellData, styleIndex);
-                                break;
-                            case 'bool':
-                                row += addBoolCol(getColumnLetter(j+1)+currRow, cellData, styleIndex);
-                                break;                                  
-                            default:
-                                var res = addStringCol(getColumnLetter(j+1)+currRow, cellData, styleIndex, shareStrings, convertedShareStrings);
-                                row += res[0]
-                                convertedShareStrings += res[1]
-                        }
-                    }       
+                var row = '<x:row r="' + currRow +'" spans="1:'+ colsLength + '">';
 
-                    row += '</x:row>';
+                for (j=0; j < colsLength; j++) {
+                    styleIndex = null;
+                    cellData = r[j];
+                    cellType = cols[j].type;
 
-                    return write(row, callback);
-                },
-                callback
-            );
+                    cols[j].beforeCellWrite = (typeof cols[j].beforeCellWrite === 'function')
+                        ? cols[j].beforeCellWrite
+                        : beforeCellWrite;
+
+                    var e = {
+                        rowNum: currRow,
+                        styleIndex: null,
+                        cellType: cellType
+                    };
+
+                    cellData = cols[j].beforeCellWrite(r, cellData, e);
+                    styleIndex = e.styleIndex || styleIndex;
+                    cellType = e.cellType;
+                    e = undefined;
+
+                    switch (cellType) {
+                        case 'number':
+                            row += addNumberCol(getColumnLetter(j+1)+currRow, cellData, styleIndex);
+                            break;
+                        case 'date':
+                            row += addDateCol(getColumnLetter(j+1)+currRow, cellData, styleIndex);
+                            break;
+                        case 'bool':
+                            row += addBoolCol(getColumnLetter(j+1)+currRow, cellData, styleIndex);
+                            break;
+                        default:
+                            row += addStringCol(getColumnLetter(j+1)+currRow, cellData, styleIndex, sharedString);
+                            break;
+                    }
+                }
+
+                row += '</x:row>';
+
+                return row;
+            });
+
+            callback();
+        },
+        function(callback) {
+            async.eachSeries(dataRows,function(row,callback) {
+                return write(row,callback);
+            },callback);
         },
         function(callback) {
             return write(sheetBack, callback);
@@ -199,14 +236,14 @@ exports.execute = function(config, callback) {
             return fs.close(sheet, callback);
         },
         function(callback) {
-            if (shareStrings.length === 0) {
+            if (sharedString.values.length === 0) {
                 return callback();
             }
 
-            sharedStringsFront = sharedStringsFront.replace(/\$count/g, shareStrings.length);
+            sharedStringsFront = sharedStringsFront.replace(/\$count/g, sharedString.values.length);
             p = path.join(dirPath, 'xl', 'sharedStrings.xml');
             files.push(p)
-            return fs.writeFile(p, sharedStringsFront + convertedShareStrings + sharedStringsBack, callback);
+            return fs.writeFile(p, sharedStringsFront + sharedString.converted.join("") + sharedStringsBack, callback);
         },
         function(callback) {
             var zipfile = new zipper(path.join(dirPath, 'data.zip'));
@@ -285,7 +322,7 @@ var addBoolCol = function(cellRef, value, styleIndex){
     return '<x:c r="'+cellRef+'" s="'+ styleIndex + '" t="b"><x:v>'+value+'</x:v></x:c>';
 }
 
-var addStringCol = function(cellRef, value, styleIndex, shareStrings){
+var addStringCol = function(cellRef, value, styleIndex, sharedString){
     styleIndex = styleIndex || 0;
     if (value===null) {
         return ["", ""];
@@ -295,14 +332,14 @@ var addStringCol = function(cellRef, value, styleIndex, shareStrings){
         value = value.replace(/&/g, "&amp;").replace(/'/g, "&apos;").replace(/>/g, "&gt;").replace(/</g, "&lt;");
     }
 
-    var convertedShareStrings = ""
-    var i = shareStrings.indexOf(value);
-    if ( i< 0) {
-        i = shareStrings.push(value) -1;
-        convertedShareStrings = "<x:si><x:t>"+value+"</x:t></x:si>";
+    var i = sharedString.index[value] || -1;
+    if ( i < 0) {
+        i = sharedString.values.push(value) - 1;
+        sharedString.index[value] = i;
+        sharedString.converted.push("<x:si><x:t>"+value+"</x:t></x:si>");
     }
 
-    return ['<x:c r="'+cellRef+'" s="'+ styleIndex + '" t="s"><x:v>'+i+'</x:v></x:c>', convertedShareStrings];
+    return '<x:c r="'+cellRef+'" s="'+ styleIndex + '" t="s"><x:v>'+i+'</x:v></x:c>';
 }
 
 var getColumnLetter = function(col){
