@@ -252,7 +252,7 @@ exports.execute = function(config, callback) {
             });
         });
         files.forEach(function (file) {
-            waterfall.push(function(prev,zip) {
+            waterfall.push(function(zip,acb) {
                 var relative = path.relative(dirPath, file);
                 fs.readFile(file,function(err, contents) {
                     if (err) return acb(err);
@@ -261,7 +261,7 @@ exports.execute = function(config, callback) {
                 });
             });
         });
-        async.waterfall(waterfall, function(err,res) {
+        async.waterfall(waterfall, function(err,zip) {
             if (err) return callback(err);
             var data = zip.generate({
                 mimeType: 'application/zip',
@@ -318,10 +318,7 @@ var addBoolCol = function (cellRef, value, styleIndex) {
 var addStringCol = function (cellRef, value, styleIndex, sharedString) {
     styleIndex = styleIndex || 0;
     if (value === null) {
-        return [
-            '',
-            ''
-        ];
+        return '';
     }
     if (typeof value === 'string') {
         value = value.replace(/&/g, '&amp;').replace(/'/g, '&apos;').replace(/>/g, '&gt;').replace(/</g, '&lt;');
