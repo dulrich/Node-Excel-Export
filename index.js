@@ -258,6 +258,8 @@ exports.execute = function(config, callback) {
                     if (err) return acb(err);
                     zip.file(relative, contents);
                     acb(null,zip);
+                });
+            });
         });
         async.waterfall(waterfall, function(err,res) {
             if (err) return callback(err);
